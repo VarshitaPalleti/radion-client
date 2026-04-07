@@ -137,7 +137,7 @@ export default function PatientProfile() {
                 {profileData.name}
               </span>
             </h1>
-            <p className="text-cyan-600 text-m font-bold font-mono mb-6 uppercase font-opensans">
+            <p className="text-cyan-600 text-m font-bold mb-6 uppercase font-opensans">
               USER ID: {profileData.id.substring(0, 8).toUpperCase()}
             </p>
 
@@ -282,10 +282,10 @@ export default function PatientProfile() {
                   name="allergies"
                   value={editData.allergies}
                   onChange={handleEditChange}
-                  className="w-full text-cyan-100 text-sm leading-relaxed bg-cyan-950/80 p-5 rounded-2xl border border-cyan-500/50 shadow-inner font-helvetica min-h-[100px]"
+                  className="w-full text-cyan-100 text-sm leading-relaxed bg-cyan-950/80 p-5 rounded-2xl border border-cyan-500/50 shadow-inner font-helvetica min-h-25"
                 />
               ) : (
-                <p className="text-cyan-100 text-sm leading-relaxed bg-cyan-950/40 p-5 rounded-2xl border border-cyan-500/5 shadow-inner font-helvetica min-h-[100px]">
+                <p className="text-cyan-100 text-sm leading-relaxed bg-cyan-950/40 p-5 rounded-2xl border border-cyan-500/5 shadow-inner font-helvetica min-h-25">
                   {profileData.allergies || "No allergies reported."}
                 </p>
               )}
@@ -299,10 +299,10 @@ export default function PatientProfile() {
                   name="diseases"
                   value={editData.diseases}
                   onChange={handleEditChange}
-                  className="w-full font-helvetica text-cyan-100 text-sm leading-relaxed bg-cyan-950/80 p-5 rounded-2xl border border-cyan-500/50 shadow-inner min-h-[100px]"
+                  className="w-full font-helvetica text-cyan-100 text-sm leading-relaxed bg-cyan-950/80 p-5 rounded-2xl border border-cyan-500/50 shadow-inner min-h-25"
                 />
               ) : (
-                <p className="font-helvetica text-cyan-100 text-sm leading-relaxed bg-cyan-950/40 p-5 rounded-2xl border border-cyan-500/5 shadow-inner min-h-[100px]">
+                <p className="font-helvetica text-cyan-100 text-sm leading-relaxed bg-cyan-950/40 p-5 rounded-2xl border border-cyan-500/5 shadow-inner min-h-25">
                   {profileData.diseases || "No existing conditions reported."}
                 </p>
               )}

@@ -1,129 +1,143 @@
 "use client";
-import Image from "next/image";
-import Link from "next/link";
 
-export default function DoctorReview() {
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { useAuth } from "@/context/AuthContext";
+import { ArrowLeft, Clock, AlertCircle, ChevronRight, Stethoscope, CheckCircle2 } from "lucide-react";
+
+export default function ReviewQueue() {
+  const { user, loading: authLoading } = useAuth();
+  const [pendingRecords, setPendingRecords] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+
+    // Fetch ALL records that need review
+    const historyRef = collection(db, "history");
+    const q = query(historyRef, where("status", "==", "PENDING_REVIEW"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const records: any[] = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      // Sort oldest first (First In, First Out queue)
+      records.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+      setPendingRecords(records);
+      setIsLoading(false);
+    }, (error) => {
+      console.error("Error fetching review queue:", error);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user, authLoading]);
+
+  // Helper to format dates
+  const formatDate = (isoString: string) => {
+    if (!isoString) return "--";
+    const date = new Date(isoString);
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit"
+    }).format(date);
+  };
+
+  if (authLoading) return <div className="min-h-screen bg-[#010a13] flex items-center justify-center text-cyan-400">Loading Access...</div>;
+
   return (
     <main className="min-h-screen relative py-16 bg-[#010a13] text-cyan-50 overflow-x-hidden">
+      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+        <div className="absolute inset-0 bg-linear-to-b from-[#010a13] via-transparent to-[#010a13]" />
+      </div>
+
       <div className="relative z-10 container mx-auto px-6 max-w-6xl">
+
+        {/* HEADER */}
         <div className="flex flex-col md:flex-row justify-between items-end gap-8 mb-12 border-b border-cyan-500/10 pb-10">
-          <div className="space-y-4 text-left">
-            <Link
-              href="/doctor/profile"
-              className="text-cyan-500/80 text-[13px] font-bold uppercase hover:text-cyan-300 transition-all flex items-center gap-2"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="3"
-                  d="M15 19l-7-7 7-7"
-                />
-              </svg>
-              Doctor Dashboard
+          <div className="space-y-4 font-montserrat">
+            <Link href="/doctor/profile" className="text-cyan-600 text-[13px] font-bold uppercase hover:text-cyan-700 transition-all flex items-center gap-2 w-max">
+              <ArrowLeft className="w-4 h-4" strokeWidth={3} /> Back to Dashboard
             </Link>
-            <h1 className="text-5xl md:text-7xl font-black tracking-tighter leading-none">
-              <span className=" bg-linear-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent uppercase text-center font-montserrat">
-                PENDING REVIEWS
+            <h1 className="md:text-6xl text-4xl font-black leading-none">
+              <span className="bg-linear-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent font-montserrat uppercase">
+                CLINICAL REVIEW QUEUE
               </span>
             </h1>
           </div>
 
-          <div className="bg-[#021a24]/60 backdrop-blur-xl px-8 py-4 rounded-3xl border border-cyan-600  text-right">
-            <p className="text-cyan-500 text-[12px] uppercase font-bold ">
-              Cases to Review
+          <div className="bg-[#021a24]/60 backdrop-blur-xl px-6 py-3 rounded-2xl border border-amber-500/20 text-right">
+            <p className="text-amber-500/90 text-[12px] uppercase font-bold tracking-widest flex items-center gap-2">
+              <Clock className="w-4 h-4" /> Pending Cases
             </p>
-            <p className="text-3xl font-black text-cyan-100">01</p>
+            <p className="text-3xl font-black text-amber-100 leading-tight">
+              {isLoading ? "-" : pendingRecords.length}
+            </p>
           </div>
         </div>
-        <div className="space-y-8">
-          <PatientReviewCard
-            name="Palleti Varshita"
-            age="22"
-            file="LUNG_CT_V44.DCM"
-            status="Critical"
-            time="2 hours ago"
-          />
+
+        {/* QUEUE LIST */}
+        <div className="space-y-4">
+          {isLoading ? (
+            <div className="p-12 text-center text-cyan-500 animate-pulse font-bold bg-[#021a24]/40 rounded-4xl border border-cyan-500/10">
+              Fetching pending cases...
+            </div>
+          ) : pendingRecords.length === 0 ? (
+            <div className="p-16 text-center flex flex-col items-center bg-[#021a24]/40 rounded-4xl border border-cyan-500/10">
+              <CheckCircle2 className="w-16 h-16 text-emerald-500/50 mb-4" />
+              <h3 className="text-2xl font-bold text-emerald-400 mb-2 font-montserrat">Queue is Empty</h3>
+              <p className="text-cyan-600/80 font-opensans">All patient scans have been reviewed.</p>
+            </div>
+          ) : (
+            pendingRecords.map((record) => (
+              <div key={record.id} className="group flex flex-col md:flex-row items-center justify-between p-6 md:p-8 bg-[#021a24]/40 backdrop-blur-xl rounded-4xl border border-cyan-500/10 hover:border-cyan-400/50 hover:bg-[#021a24]/80 transition-all duration-300 shadow-xl">
+
+                <div className="flex items-center gap-6 w-full md:w-auto mb-6 md:mb-0">
+                  <div className="w-16 h-16 rounded-2xl bg-black/50 border border-white/10 overflow-hidden shrink-0 relative">
+                    <img src={record.imageUrl} alt="Scan" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition duration-500" />
+                    {record.isCancer && <div className="absolute inset-0 border-2 border-red-500/50 rounded-2xl pointer-events-none" />}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="text-sm font-mono text-cyan-500 uppercase tracking-widest">
+                        {formatDate(record.createdAt)}
+                      </span>
+                      {record.isCancer && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-black bg-red-500/20 text-red-400 uppercase tracking-widest border border-red-500/20">High Priority</span>
+                      )}
+                    </div>
+                    <h3 className="text-xl font-bold text-white font-montserrat flex items-center gap-2">
+                      Patient ID: <span className="text-cyan-100/70 font-mono text-lg">{record.patientId.substring(0, 6).toUpperCase()}</span>
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="flex items-center w-full md:w-auto gap-8 justify-between md:justify-end">
+                  <div className="text-left md:text-right hidden sm:block">
+                    <p className="text-[10px] text-cyan-600 uppercase font-bold tracking-widest mb-1">AI Flag</p>
+                    <p className={`font-black uppercase tracking-wider ${record.isCancer ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {record.prediction} ({record.confidence})
+                    </p>
+                  </div>
+
+                  <Link
+                    href={`/doctor/review/${record.id}`}
+                    className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-black px-6 py-3 rounded-xl transition-all hover:scale-105 uppercase tracking-widest text-xs"
+                  >
+                    <Stethoscope className="w-4 h-4" /> Review Case <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
-       
       </div>
     </main>
-  );
-}
-
-function PatientReviewCard({
-  name,
-  age,
-  file,
-  status,
-  time,
-}: {
-  name: string;
-  age: string;
-  file: string;
-  status: "Critical" | "Stable" | "Pending";
-  time: string;
-}) {
-  const statusConfig = {
-    Critical:
-      "text-rose-400 border-rose-500/30 bg-rose-500/10 shadow-[0_0_15px_rgba(244,63,94,0.2)] animate-pulse",
-    Stable: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
-    Pending: "text-cyan-400 border-cyan-500/30 bg-cyan-500/10",
-  };
-
-  return (
-    <div className="group relative w-full bg-[#021a24]/40 backdrop-blur-3xl rounded-[3rem] border border-cyan-500/10 py-14 px-10 flex flex-col md:flex-row items-center justify-between transition-all duration-500 hover:border-cyan-400/40 hover:bg-[#021a24]/60 hover:-translate-y-1 cursor-pointer">
-      <div className="flex items-center gap-8 mb-8 md:mb-0">
-        <div className="w-20 h-20 rounded-3xl bg-cyan-950/50 border border-cyan-500/20 flex items-center justify-center text-cyan-400 font-black text-2xl">
-          {name.charAt(0)}
-        </div>
-        <div>
-          <h2 className="text-3xl font-black text-white tracking-tight uppercase group-hover:text-cyan-300 transition-colors">
-            {name}
-          </h2>
-          <p className="text-cyan-600 text-[13px] font-bold tracking-widest uppercase mt-1 font-opensans">
-            Age: {age} Years • {time}
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-col md:flex-row items-center gap-10 w-full md:w-auto">
-        <div className="flex flex-col md:items-end">
-          <p className="text-cyan-600 text-[10px] uppercase font-black tracking-widest mb-2 font-opensans ">
-            Source Scan
-          </p>
-          <div className="flex items-center gap-3 text-cyan-50 font-mono text-sm bg-black/40 px-5 py-3 rounded-xl border border-cyan-500/10 shadow-lg">
-            <svg
-              className="w-4 h-4 text-cyan-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2.5"
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
-            {file}
-          </div>
-        </div>
-        <div
-          className={`px-8 py-2.5 rounded-full border text-[11px] font-black uppercase tracking-[0.2em] shadow-inner ${statusConfig[status]}`}
-        >
-          {status}
-        </div>
-        <button className="  bg-linear-to-r from-blue-400/50 to-cyan-300/50 text-transparentt font-black px-10 py-5 rounded-2xl shadow-xl shadow-cyan-500/10 hover:shadow-cyan-400/20 cursor-pointer transition-all active:scale-95 uppercase text-[13px] tracking-widest">
-          Open Record
-        </button>
-      </div>
-      <div className="absolute left-0 top-1/4 bottom-1/4 w-1.5 bg-cyan-400/20 rounded-r-full group-hover:bg-cyan-400 transition-all duration-500" />
-    </div>
   );
 }

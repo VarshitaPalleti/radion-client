@@ -25,7 +25,7 @@ export default function Navbar() {
       <Link href="/" className="flex items-center gap-2">
         <img
           className="w-13 rounded-3xl"
-          src="../logobg.png"
+          src="../logo.png"
           alt="Radion Logo"
         />
 
