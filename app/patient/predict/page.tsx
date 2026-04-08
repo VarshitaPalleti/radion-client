@@ -1,59 +1,50 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
-import { ArrowLeft, UploadCloud, AlertCircle, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, UploadCloud, AlertCircle, CheckCircle2, Download, RefreshCcw } from "lucide-react";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { collection, addDoc } from "firebase/firestore";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 
 export default function Predict() {
-  const { user } = useAuth(); // Need user to save to their history
+  const { user } = useAuth();
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // State to hold the backend response
   const [result, setResult] = useState<{
     prediction: string;
     confidence: string;
     is_cancer: boolean;
-    report_image_base64: string;
   } | null>(null);
 
-  // Handle File Selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-
-      // Basic validation (Max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         setError("File size exceeds 10MB limit.");
         return;
       }
-
       setSelectedFile(file);
       setPreviewUrl(URL.createObjectURL(file));
       setError(null);
-      setResult(null); // Reset previous results if any
+      setResult(null);
     }
   };
 
-  // Main Prediction Pipeline
   const handlePredict = async () => {
     if (!selectedFile || !user) return;
     setIsProcessing(true);
     setError(null);
 
     try {
-      // ---------------------------------------------------------
-      // 1. UPLOAD TO FASTAPI (Local AI Model)
-      // ---------------------------------------------------------
+      // 1. UPLOAD TO FASTAPI
       const formData = new FormData();
-      formData.append("file", selectedFile); // FastAPI usually expects the key 'file'
+      formData.append("file", selectedFile);
 
       const aiResponse = await fetch("http://localhost:8000/predict", {
         method: "POST",
@@ -63,10 +54,7 @@ export default function Predict() {
       if (!aiResponse.ok) throw new Error("AI Model failed to process the image.");
       const aiData = await aiResponse.json();
 
-      // ---------------------------------------------------------
-      // 2. UPLOAD TO FIREBASE STORAGE (For our records)
-      // ---------------------------------------------------------
-      // Create a unique filename
+      // 2. UPLOAD TO FIREBASE STORAGE
       const fileExt = selectedFile.name.split('.').pop();
       const fileName = `scans/${user.uid}/${Date.now()}.${fileExt}`;
       const storageRef = ref(storage, fileName);
@@ -74,21 +62,23 @@ export default function Predict() {
       const uploadTask = await uploadBytesResumable(storageRef, selectedFile);
       const downloadURL = await getDownloadURL(uploadTask.ref);
 
-      // ---------------------------------------------------------
       // 3. SAVE RECORD TO FIRESTORE
-      // ---------------------------------------------------------
       await addDoc(collection(db, "history"), {
         patientId: user.uid,
         imageUrl: downloadURL,
         prediction: aiData.prediction,
         confidence: aiData.confidence,
         isCancer: aiData.is_cancer,
-        status: "PENDING_REVIEW", // Doctor needs to verify this later
+        status: "PENDING_REVIEW",
         createdAt: new Date().toISOString(),
       });
 
-      // 4. Update UI with Results
-      setResult(aiData);
+      // 4. Update UI
+      setResult({
+        prediction: aiData.prediction,
+        confidence: aiData.confidence,
+        is_cancer: aiData.is_cancer
+      });
 
     } catch (err: any) {
       console.error("Prediction Pipeline Error:", err);
@@ -98,13 +88,141 @@ export default function Predict() {
     }
   };
 
+  // Helper to load images asynchronously for the Canvas
+  const loadImage = (src: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  };
+
+  // --- PREMIUM NATIVE CANVAS DOWNLOAD GENERATOR ---
+  const handleDownloadReport = async () => {
+    if (!result || !previewUrl) return;
+
+    try {
+      // Load both images before drawing
+      const [scanImg, logoImg] = await Promise.all([
+        loadImage(previewUrl),
+        loadImage("/logo.png") // Ensure logo.png is in your /public folder
+      ]);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 800;
+      canvas.height = 1000;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      // 1. Base Background (Main Dark Theme)
+      ctx.fillStyle = "#010a13";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 2. Premium Inner Card with Curved Borders
+      ctx.fillStyle = "#021a24";
+      ctx.beginPath();
+      ctx.roundRect(40, 40, 720, 920, 40); // x, y, width, height, border-radius
+      ctx.fill();
+      ctx.strokeStyle = "rgba(6, 182, 212, 0.2)"; // Soft cyan border
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // 3. Draw Radion Logo (Centered at top)
+      const logoSize = 80;
+      ctx.drawImage(logoImg, canvas.width / 2 - logoSize / 2, 70, logoSize, logoSize);
+
+      // 4. Draw Header Text
+      ctx.fillStyle = "#22d3ee"; // Cyan-400
+      ctx.font = "900 32px Arial"; // bolder font
+      ctx.textAlign = "center";
+      ctx.fillText("RADION CLINICAL AI REPORT", 400, 190);
+
+      ctx.fillStyle = "#94a3b8"; // Slate-400
+      ctx.font = "16px Arial";
+      ctx.fillText(`PATIENT ID: ${user?.uid.substring(0, 8).toUpperCase()}  |  DATE: ${new Date().toLocaleDateString()}`, 400, 225);
+
+      // Separator Line
+      ctx.strokeStyle = "rgba(34, 211, 238, 0.1)"; // Very faint cyan
+      ctx.beginPath();
+      ctx.moveTo(100, 250);
+      ctx.lineTo(700, 250);
+      ctx.stroke();
+
+      // 5. Draw the Medical Scan with Curved Borders (Clipping Mask)
+      const imgSize = 360;
+      const imgX = (canvas.width - imgSize) / 2;
+      const imgY = 290;
+
+      ctx.save(); // Save context state before clipping
+      ctx.beginPath();
+      ctx.roundRect(imgX, imgY, imgSize, imgSize, 24); // 24px radius
+      ctx.clip(); // Clip everything drawn after this to the rounded rectangle
+
+      // Draw a black background behind the image just in case it has transparency
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(imgX, imgY, imgSize, imgSize);
+      // Draw image
+      ctx.drawImage(scanImg, imgX, imgY, imgSize, imgSize);
+      ctx.restore(); // Restore context to remove clipping mask for the rest of the canvas
+
+      // Draw the glowing cyan border around the image
+      ctx.beginPath();
+      ctx.roundRect(imgX, imgY, imgSize, imgSize, 24);
+      ctx.strokeStyle = "rgba(6, 182, 212, 0.6)"; // Cyan-500
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // 6. Draw Premium Results Box (Curved Borders)
+      const boxY = 690;
+      const isCancer = result.is_cancer;
+
+      // Box Background
+      ctx.fillStyle = isCancer ? "rgba(220, 38, 38, 0.1)" : "rgba(16, 185, 129, 0.1)";
+      ctx.beginPath();
+      ctx.roundRect(100, boxY, 600, 160, 24);
+      ctx.fill();
+
+      // Box Border
+      ctx.strokeStyle = isCancer ? "rgba(248, 113, 113, 0.5)" : "rgba(52, 211, 153, 0.5)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Box Content
+      ctx.fillStyle = isCancer ? "#f87171" : "#34d399";
+      ctx.font = "900 42px Arial";
+      ctx.fillText(`AI FLAG: ${result.prediction}`, 400, boxY + 70);
+
+      ctx.fillStyle = "#e2e8f0";
+      ctx.font = "20px Arial";
+      ctx.fillText(`Confidence Score: ${result.confidence}`, 400, boxY + 115);
+
+      // 7. Draw Footer Disclaimer
+      ctx.fillStyle = "#64748b";
+      ctx.font = "italic 14px Arial";
+      ctx.fillText("Disclaimer: This is an AI-generated preliminary screening report.", 400, 910);
+      ctx.fillText("It is not a final diagnosis. Pending verification by a registered clinician.", 400, 935);
+
+      // 8. Trigger Download
+      const link = document.createElement('a');
+      link.download = `Radion_Scan_${Date.now()}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+
+    } catch (error) {
+      console.error("Error generating report image:", error);
+      alert("Failed to generate report image.");
+    }
+  };
+
   return (
     <main className="min-h-screen relative flex items-center justify-center py-20 bg-[#010a13] overflow-x-hidden">
       <div className="absolute inset-0 z-0">
         <div className="absolute inset-0 bg-linear-to-b from-[#010a13]/80 via-[#010a13]/40 to-[#010a13]" />
       </div>
 
-      <div className="relative z-10 w-full max-w-6xl px-6 flex flex-col items-center">
+      <div className="relative z-10 w-full max-w-4xl px-6 flex flex-col items-center">
 
         {/* HEADER */}
         <div className="text-center mb-12">
@@ -118,77 +236,56 @@ export default function Predict() {
               ~ A Friendly Eye on your Lung Health
             </p>
             <p className="text-gray-300 text-[18px] italic border-y border-cyan-500/10 py-4 px-6">
-              "Breath is life—protect your lungs, protect your future. Early
-              detection: Your strongest defense."
+              "Breath is life—protect your lungs, protect your future. Early detection: Your strongest defense."
             </p>
           </div>
         </div>
 
-        {/* CONDITIONAL LAYOUT 
-          If Result exists -> Show Results UI
-          If No Result -> Show Upload UI 
-        */}
         {result ? (
+          /* --- RE-DESIGNED RESULTS UI --- */
+          <div className="w-full max-w-2xl bg-[#021a24]/60 backdrop-blur-3xl rounded-[3rem] shadow-2xl border border-cyan-500/20 p-8 md:p-12 animate-in slide-in-from-bottom-10 duration-700 flex flex-col items-center text-center">
 
-          /* --- RESULTS UI --- */
-          <div className="w-full bg-[#021a24]/60 backdrop-blur-3xl rounded-[3rem] shadow-2xl border border-cyan-500/20 p-8 md:p-12 animate-in slide-in-from-bottom-10 duration-700">
-            <div className="flex flex-col lg:flex-row gap-10">
-
-              {/* Left Side: Summary & Original Image */}
-              <div className="lg:w-1/3 flex flex-col gap-6">
-                <div className={`p-6 rounded-3xl border ${result.is_cancer ? 'bg-red-500/10 border-red-500/30' : 'bg-emerald-500/10 border-emerald-500/30'}`}>
-                  <div className="flex items-center gap-3 mb-2">
-                    {result.is_cancer ? <AlertCircle className="w-8 h-8 text-red-400" /> : <CheckCircle2 className="w-8 h-8 text-emerald-400" />}
-                    <h2 className={`text-3xl font-black uppercase tracking-tight ${result.is_cancer ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {result.prediction}
-                    </h2>
-                  </div>
-                  <p className="text-slate-300 font-opensans uppercase tracking-widest text-sm">
-                    AI Confidence: <span className="text-white font-bold">{result.confidence}</span>
-                  </p>
-                </div>
-
-                <div className="bg-slate-900/50 rounded-3xl p-4 border border-white/5">
-                  <p className="text-cyan-500/70 text-xs uppercase font-bold tracking-widest mb-3 ml-2">Original Scan</p>
-                  {previewUrl && (
-                    <img src={previewUrl} alt="Original Scan" className="w-full h-auto rounded-2xl object-cover" />
-                  )}
-                </div>
-
-                <button
-                  onClick={() => { setResult(null); setSelectedFile(null); setPreviewUrl(null); }}
-                  className="cursor-pointer mt-auto py-4 rounded-xl border border-cyan-500/30 text-cyan-400 font-bold uppercase tracking-widest hover:bg-cyan-500/10 transition-all"
-                >
-                  Analyze Another Scan
-                </button>
-              </div>
-
-              {/* Right Side: Generated Medical Report Image */}
-              <div className="lg:w-2/3 bg-slate-950/80 rounded-[2.5rem] p-6 border border-cyan-500/10 flex flex-col">
-                <div className="flex justify-between items-center mb-6 px-4">
-                  <h3 className="text-cyan-300 font-montserrat font-bold text-xl uppercase tracking-widest">Clinical AI Report</h3>
-                  <span className="px-4 py-1 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-bold uppercase tracking-widest">Pending Doctor Review</span>
-                </div>
-
-                <div className="flex-1 rounded-2xl overflow-hidden bg-black/50 border border-white/5 flex items-center justify-center min-h-[400px]">
-                  {/* Render Base64 Image */}
-                  <img
-                    src={`data:image/png;base64,${result.report_image_base64}`}
-                    alt="AI Diagnostic Report"
-                    className="w-full h-auto object-contain max-h-[600px]"
-                  />
-                </div>
-              </div>
-
+            {/* Image Preview */}
+            <div className="w-64 h-64 rounded-3xl overflow-hidden border-2 border-cyan-500/30 mb-8 bg-black/50 p-2 shadow-xl shadow-cyan-500/10">
+              <img src={previewUrl!} alt="Original Scan" className="w-full h-full object-cover rounded-2xl" />
             </div>
+
+            {/* AI Result Badge */}
+            <div className={`w-full p-6 rounded-3xl border mb-8 ${result.is_cancer ? 'bg-red-500/10 border-red-500/30' : 'bg-emerald-500/10 border-emerald-500/30'}`}>
+              <div className="flex items-center justify-center gap-3 mb-2">
+                {result.is_cancer ? <AlertCircle className="w-8 h-8 text-red-400" /> : <CheckCircle2 className="w-8 h-8 text-emerald-400" />}
+                <h2 className={`text-4xl font-black uppercase tracking-tight ${result.is_cancer ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {result.prediction}
+                </h2>
+              </div>
+              <p className="text-slate-300 font-opensans uppercase tracking-widest text-sm">
+                AI Confidence: <span className="text-white font-bold">{result.confidence}</span>
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="w-full flex flex-col sm:flex-row gap-4">
+              <button
+                onClick={handleDownloadReport}
+                className="flex-1 flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-black py-4 rounded-2xl shadow-lg transition-all hover:-translate-y-1 active:scale-95 uppercase tracking-widest text-sm"
+              >
+                <Download className="w-5 h-5" /> Download Report
+              </button>
+
+              <button
+                onClick={() => { setResult(null); setSelectedFile(null); setPreviewUrl(null); }}
+                className="flex-1 flex items-center justify-center gap-2 border border-cyan-500/30 text-cyan-400 font-bold py-4 rounded-2xl hover:bg-cyan-500/10 transition-all uppercase tracking-widest text-sm"
+              >
+                <RefreshCcw className="w-5 h-5" /> New Scan
+              </button>
+            </div>
+
           </div>
 
         ) : (
 
           /* --- UPLOAD UI --- */
           <div className="bg-[#021a24]/60 backdrop-blur-3xl w-full max-w-2xl rounded-[3rem] shadow-2xl border-2 border-dashed border-cyan-600/40 flex flex-col items-center p-12 transition-all hover:border-cyan-400/50 group">
-
-            {/* Preview or Icon */}
             {previewUrl ? (
               <div className="mb-8 relative w-48 h-48 rounded-3xl overflow-hidden border-2 border-cyan-500/50 shadow-lg shadow-cyan-500/20">
                 <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
@@ -215,7 +312,6 @@ export default function Predict() {
               </div>
             )}
 
-            {/* Action Buttons */}
             {!previewUrl ? (
               <label className="w-full cursor-pointer">
                 <div className="bg-cyan-600 text-slate-950 font-black py-5 px-10 rounded-2xl shadow-xl shadow-cyan-500/10 transition-all hover:-translate-y-1 active:translate-y-0 text-center uppercase font-montserrat">
@@ -227,7 +323,7 @@ export default function Predict() {
               <button
                 onClick={handlePredict}
                 disabled={isProcessing}
-                className="cursor-pointer w-full bg-linear-to-r from-blue-500 to-cyan-400 text-slate-950 font-black py-5 px-10 rounded-2xl shadow-xl shadow-cyan-500/20 transition-all hover:-translate-y-1 active:scale-95 text-center uppercase font-montserrat disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-linear-to-r from-blue-500 to-cyan-400 text-slate-950 font-black py-5 px-10 rounded-2xl shadow-xl shadow-cyan-500/20 transition-all hover:-translate-y-1 active:scale-95 text-center uppercase font-montserrat disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isProcessing ? "Analyzing Scan..." : "Run AI Diagnostics"}
               </button>

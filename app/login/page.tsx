@@ -68,7 +68,7 @@ export default function Login() {
         </div>
 
         {/* LOGIN BOX */}
-        <div className="p-10 text-center bg-[#081d32]/60 backdrop-blur-xl w-full max-w-[450px] rounded-[50px] border border-white/10">
+        <div className="p-10 text-center bg-[#081d32]/60 backdrop-blur-xl w-full max-w-[450px] rounded-[30px] border border-white/10">
           <button
             onClick={handleGoogleLogin}
             disabled={isLoggingIn}
